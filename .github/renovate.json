@@ -1,0 +1,36 @@
+{
+	"$schema": "https://docs.renovatebot.com/renovate-schema.json",
+	"extends": ["config:recommended", "helpers:pinGitHubActionDigests"],
+	"rangeStrategy": "pin",
+	"customManagers": [
+		{
+			"customType": "regex",
+			"description": "Postgres, built from its release tag and pinned to that tag's commit",
+			"managerFilePatterns": ["/^scripts/postgres/versions\\.env$/"],
+			"matchStrings": [
+				"POSTGRES_TAG=(?<currentValue>\\S+)\\nPOSTGRES_COMMIT=(?<currentDigest>[0-9a-f]{40})"
+			],
+			"depNameTemplate": "postgres/postgres",
+			"datasourceTemplate": "github-tags",
+			"versioningTemplate": "regex:^REL_(?<major>\\d+)_(?<minor>\\d+)$"
+		},
+		{
+			"customType": "regex",
+			"description": "pgvector, built from its release tag and pinned to that tag's commit",
+			"managerFilePatterns": ["/^scripts/postgres/versions\\.env$/"],
+			"matchStrings": [
+				"PGVECTOR_TAG=(?<currentValue>\\S+)\\nPGVECTOR_COMMIT=(?<currentDigest>[0-9a-f]{40})"
+			],
+			"depNameTemplate": "pgvector/pgvector",
+			"datasourceTemplate": "github-tags",
+			"versioningTemplate": "semver"
+		}
+	],
+	"packageRules": [
+		{
+			"description": "A new Postgres major needs its own data directories, so it is never a routine update",
+			"matchDepNames": ["postgres/postgres"],
+			"allowedVersions": "/^REL_18_\\d+$/"
+		}
+	]
+}

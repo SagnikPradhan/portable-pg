@@ -1,0 +1,21 @@
+name: Binaries
+description: Download the binaries a build job made and unpack them into vendor/postgres/linux-<arch>.
+
+inputs:
+  arch:
+    description: x64 or arm64
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+      with:
+        name: binaries-${{ inputs.arch }}
+        path: vendor/postgres
+    - run: |
+        mkdir -p "vendor/postgres/linux-$ARCH"
+        tar -xzf vendor/postgres/*-linux-"$ARCH".tar.gz -C "vendor/postgres/linux-$ARCH" --strip-components=1
+      shell: bash
+      env:
+        ARCH: ${{ inputs.arch }}
