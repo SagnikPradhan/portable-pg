@@ -1,0 +1,117 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_call:
+    inputs:
+      version:
+        description: The version to build, from the release tag
+        type: string
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  VERSION: ${{ inputs.version }}
+
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/setup
+      - run: pnpm format:check
+      - run: pnpm lint
+      - run: pnpm check
+      - run: shellcheck -x scripts/*.sh scripts/postgres/build.sh
+      - if: github.event_name == 'pull_request'
+        run: printf '%s\n' "$TITLE" | pnpm exec commitlint
+        env:
+          TITLE: ${{ github.event.pull_request.title }}
+
+  build:
+    strategy:
+      matrix:
+        include:
+          - { arch: x64, runner: ubuntu-24.04 }
+          - { arch: arm64, runner: ubuntu-24.04-arm }
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      # Exposes the cache service to docker buildx, which a plain run step cannot reach otherwise.
+      - uses: crazy-max/ghaction-github-runtime@04d248b84655b509d8c44dc1d6f990c879747487 # v4.0.0
+      - if: env.VERSION
+        run: npm pkg set version="$VERSION"
+      - run: >-
+          scripts/postgres.sh ${{ matrix.arch }}
+          --cache-from type=gha,scope=${{ matrix.arch }}
+          --cache-to type=gha,mode=max,scope=${{ matrix.arch }}
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: binaries-${{ matrix.arch }}
+          path: vendor/postgres/*.tar.gz
+          if-no-files-found: error
+
+  test:
+    needs: build
+    strategy:
+      matrix:
+        include:
+          - { arch: x64, runner: ubuntu-24.04 }
+          - { arch: arm64, runner: ubuntu-24.04-arm }
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/setup
+      - uses: ./.github/actions/binaries
+        with:
+          arch: ${{ matrix.arch }}
+      - if: env.VERSION
+        run: npm pkg set version="$VERSION"
+      - name: Download the previous release to check data directory compatibility against
+        run: |
+          tag=$(gh release view --json tagName --jq .tagName 2>/dev/null) || {
+            echo "::notice::No previous release to check data directory compatibility against"
+            exit 0
+          }
+          gh release download "$tag" --pattern "*-linux-$ARCH.tar.gz" --dir "$RUNNER_TEMP/previous"
+          mkdir "$RUNNER_TEMP/old"
+          tar -xzf "$RUNNER_TEMP"/previous/*.tar.gz -C "$RUNNER_TEMP/old" --strip-components=1
+          echo "PPG_PREVIOUS=$RUNNER_TEMP/old" >>"$GITHUB_ENV"
+        env:
+          ARCH: ${{ matrix.arch }}
+          GH_TOKEN: ${{ github.token }}
+      - run: pnpm test
+
+  pack:
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/setup
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: binaries-*
+          path: release
+          merge-multiple: true
+      - run: scripts/release.sh "${VERSION:-$(node -p "require('./package.json').version")}" release
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release
+          path: release/
+          if-no-files-found: error

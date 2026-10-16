@@ -1,0 +1,13 @@
+{
+	"extends": "@tsconfig/strictest",
+	"compilerOptions": {
+		"target": "es2024",
+		"module": "nodenext",
+		"types": ["node"],
+		"rewriteRelativeImportExtensions": true,
+		"erasableSyntaxOnly": true,
+		"verbatimModuleSyntax": true,
+		"noEmit": true
+	},
+	"include": ["src", "tests", "*.ts"]
+}
