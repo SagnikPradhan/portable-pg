@@ -34,10 +34,11 @@ The release workflow then:
 2. builds both architectures and runs every test, through the same workflow pull requests use;
 3. packs the Node package with the tarballs' checksums built in, and writes `SHA256SUMS` and a manifest for each platform;
 4. checks the tag's `18xx` matches the Postgres it built;
-5. attests every file and creates the GitHub release, with notes generated from the merged pull requests.
+5. attests every file and creates the GitHub release, with notes generated from the merged pull requests;
+6. publishes the Node package to npm, with provenance, through npm's trusted publishing.
 
 The release publishes the exact files the tests ran against. Nothing is rebuilt after testing.
 
 ## When a release is broken
 
-Fix it on `main` and release the fix as the next version. Then add a line at the top of the broken release's notes: "⚠️ Broken, use vX.Y.Z instead." Don't delete the release or its files, because projects that pinned its URLs would stop installing.
+Fix it on `main` and release the fix as the next version. Then add a line at the top of the broken release's notes: "⚠️ Broken, use vX.Y.Z instead." Don't delete the release or its files, because projects that pinned its URLs would stop installing. Deprecate the broken npm version too, with `npm deprecate portable-pg@X.Y.Z "Broken, use X.Y.Z instead"`.

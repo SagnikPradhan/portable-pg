@@ -62,3 +62,9 @@ jobs:
           title="v$VERSION: Postgres $(jq -r .postgres.version "$manifest"), pgvector $(jq -r '.pgvector.tag | ltrimstr("v")' "$manifest")"
           gh release create "v$VERSION" release/* --repo "$GITHUB_REPOSITORY" --verify-tag \
             --title "$title" --generate-notes
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+      # Authenticates through npm's trusted publishing, which also adds provenance. See
+      # https://docs.npmjs.com/trusted-publishers
+      - run: npm publish "release/portable-pg-$VERSION.tgz"
