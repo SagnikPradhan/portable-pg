@@ -12,7 +12,7 @@ It is built for [Rupee](https://github.com/SagnikPradhan/rupee) first. Extension
 
 ## Use it from Node
 
-Needs Node 24. Install the `.tgz` from a [release](https://github.com/SagnikPradhan/portable-pg/releases), such as `pnpm add <url of portable-pg-0.180600.0.tgz>`.
+Needs Node 24. Install it with `pnpm add portable-pg`.
 
 ```ts
 const server = await startServer({ directory: 'data/postgres' });
