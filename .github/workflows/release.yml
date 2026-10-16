@@ -67,4 +67,4 @@ jobs:
           node-version: 24
       # Authenticates through npm's trusted publishing, which also adds provenance. See
       # https://docs.npmjs.com/trusted-publishers
-      - run: npm publish "release/portable-pg-$VERSION.tgz"
+      - run: npm publish "./release/portable-pg-$VERSION.tgz"
