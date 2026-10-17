@@ -10,7 +10,8 @@
 		"node": ">=24"
 	},
 	"os": [
-		"linux"
+		"linux",
+		"darwin"
 	],
 	"bin": {
 		"ppg": "./dist/cli.js"

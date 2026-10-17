@@ -8,7 +8,8 @@ import pg from 'pg';
 import { test as base, expect, vi } from 'vitest';
 import { startServer } from '#src/server';
 
-const binaries = process.env['PPG_BINARIES'] ?? `vendor/postgres/linux-${process.arch}`;
+const binaries =
+	process.env['PPG_BINARIES'] ?? `vendor/postgres/${process.platform}-${process.arch}`;
 
 const test = base.extend<{ directory: string }>({
 	directory: async ({ onTestFinished }, use) => {

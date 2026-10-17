@@ -2,7 +2,9 @@ import { test as base, describe, expect } from 'vitest';
 import { cluster, container, host, type Cluster } from './postgres.ts';
 
 const MOVED = 'a different path';
-const DISTROS = ['almalinux:9', 'debian:12', 'ubuntu:22.04', 'debian:13'];
+// Containers run Linux, so only Linux binaries run in them.
+const DISTROS =
+	process.platform === 'linux' ? ['almalinux:9', 'debian:12', 'ubuntu:22.04', 'debian:13'] : [];
 
 const test = base.extend<{ place: string; postgres: Cluster }>({
 	place: MOVED,

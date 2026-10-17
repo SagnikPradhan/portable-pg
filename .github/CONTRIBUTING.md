@@ -4,11 +4,11 @@ Thanks for helping. portable-pg is built for [Rupee](https://github.com/SagnikPr
 
 ## Setup
 
-You need Linux, Docker with buildx, Node 24 and pnpm (`corepack enable` provides the pinned version).
+You need Node 24 and pnpm, and Docker with buildx on Linux or Apple's command line tools on a Mac (`corepack enable` provides the pinned version).
 
 ```sh
 pnpm install
-pnpm postgres   # builds vendor/postgres/linux-<arch>, about a minute and a half
+pnpm postgres   # builds vendor/postgres/<platform>, about a minute and a half
 pnpm test
 ```
 

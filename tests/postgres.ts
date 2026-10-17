@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { promisify } from 'node:util';
 
 export const BINARIES = realpathSync(
-	process.env['PPG_BINARIES'] ?? `vendor/postgres/linux-${process.arch}`,
+	process.env['PPG_BINARIES'] ?? `vendor/postgres/${process.platform}-${process.arch}`,
 );
 
 const LIFETIME = '300';

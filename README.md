@@ -1,6 +1,6 @@
 # portable-pg
 
-Postgres 18 with pgvector, built as one directory that runs from wherever you put it on Linux, and a small Node package that runs it for an app or a test suite. Nobody installs Postgres or Docker.
+Postgres 18 with pgvector, built as one directory that runs from wherever you put it on Linux or macOS, and a small Node package that runs it for an app or a test suite. Nobody installs Postgres or Docker.
 
 It is built for [Rupee](https://github.com/SagnikPradhan/rupee) first. Extensions and platforms are added when Rupee needs them.
 
@@ -8,7 +8,8 @@ It is built for [Rupee](https://github.com/SagnikPradhan/rupee) first. Extension
 
 - Postgres 18, every contrib extension, and pgvector, with `psql`, `pg_dump`, `pg_restore` and `pg_upgrade`.
 - Linux on x64 and arm64 with glibc 2.34 or newer: RHEL 9, Debian 12, Ubuntu 22.04 and anything newer.
-- About 8 MB to download. Nothing outside the directory is needed besides glibc.
+- macOS 26 or newer on Apple silicon.
+- About 8 MB to download. Nothing outside the directory is needed besides the system's C library.
 
 ## Use it from Node
 

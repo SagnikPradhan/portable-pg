@@ -5,7 +5,7 @@ portable-pg builds Postgres with pgvector as one movable directory for Linux, an
 ## Project constraints
 
 - **Rupee first.** Add extensions and platforms only when Rupee needs them.
-- **Movable, old glibc.** Nothing in the directory may link outside it except glibc, and nothing may need a glibc newer than 2.34. `tests/linkage.test.ts` checks both.
+- **Movable, old systems.** Nothing in the directory may link outside it except the system's C library, and nothing may need a glibc newer than 2.34 or a macOS newer than 26. `tests/linkage.test.ts` checks both.
 - **Stable data format.** Within a Postgres major, never change a configure option that affects the on-disk format. See [docs/building.md](docs/building.md#the-data-format-rule).
 - **Pinned everything.** Sources are pinned to commits, the base image to a digest, Actions to commit SHAs, dependencies to exact versions (`pnpm add -E`).
 - **No runtime dependencies** in the Node package. Node's standard library and the system `tar` are enough.
