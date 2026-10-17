@@ -1,7 +1,7 @@
 # Its glibc 2.34 is the oldest we support, as manylinux does: RHEL 9, Debian 12, Ubuntu 22.04 and later.
 # See manylinux_2_34 in https://github.com/pypa/manylinux
 FROM almalinux:9@sha256:9819dc675b67b595c2b59e42be7763fca1a8bb217fa5944e04daa22e9a64db16 AS build
-ENV REQUIRES="glibc 2.34"
+ENV FLOOR_NAME=glibc FLOOR_VERSION=2.34
 
 # gcc-toolset brings a newer compiler that still links against the system glibc. See
 # https://docs.redhat.com/en/documentation/red_hat_enterprise_linux/8/html/developing_c_and_cpp_applications_in_rhel_8/additional-toolsets-for-development_developing-applications

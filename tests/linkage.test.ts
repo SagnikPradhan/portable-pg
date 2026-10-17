@@ -1,7 +1,7 @@
 import { existsSync } from 'node:fs';
 import { open, readdir } from 'node:fs/promises';
 import { join, relative } from 'node:path';
-import { expect, test } from 'vitest';
+import { test as base, expect } from 'vitest';
 import { BINARIES, shell } from './postgres.ts';
 
 // Compiled programs and libraries start with these bytes: ELF files on Linux, 64-bit Mach-O files on
@@ -12,28 +12,47 @@ const LINUX = {
 	magic: '\x7fELF',
 	floor: { name: 'glibc', version: '2.34' },
 	system: /^(libc|libm|libdl|libpthread|librt|ld-linux-[a-z0-9_-]+|linux-vdso|linux-gate)\.so/,
-	outside: async (files: string[]) => (await Promise.all(files.map(resolvedByLdd))).flat(),
-	needs: async (files: string[]) => (await Promise.all(files.map(glibcVersions))).flat(),
+	inspect: async (files: string[]) => ({
+		outside: (await Promise.all(files.map(resolvedByLdd))).flat(),
+		needs: (await Promise.all(files.map(glibcVersions))).flat(),
+	}),
 };
 
 const DARWIN = {
 	magic: '\xcf\xfa\xed\xfe',
 	floor: { name: 'macOS', version: '26.0' },
-	system: /^\/(usr\/lib|System\/Library)\//,
-	outside: async (files: string[]) => (await loadCommands(files)).flatMap(linkedOutside),
-	needs: async (files: string[]) => (await loadCommands(files)).flatMap(macosVersions),
+	system: /^\/usr\/lib\/(libSystem\.B\.dylib|dyld)$/,
+	inspect: async (files: string[]) => {
+		const commands = await loadCommands(files);
+		return { outside: commands.flatMap(linkedOutside), needs: commands.flatMap(macosVersions) };
+	},
 };
 
 const SYSTEM = process.platform === 'darwin' ? DARWIN : LINUX;
 const FLOOR = `${SYSTEM.floor.name} ${SYSTEM.floor.version}`;
 
-test('every binary finds its libraries inside the directory or in the system', async () => {
-	expect(await SYSTEM.outside(await compiled())).toEqual([]);
+// Reads every binary once for both tests, since otool is slow to start on macOS. Vitest requires a
+// fixture's first parameter to be destructured, even when it needs no other fixture.
+const test = base.extend<{
+	binaries: string[];
+	inspected: { outside: string[]; needs: { file: string; version: string }[] };
+}>({
+	// eslint-disable-next-line no-empty-pattern
+	binaries: [async ({}, use) => use(await compiled()), { scope: 'file' }],
+	inspected: [async ({ binaries }, use) => use(await SYSTEM.inspect(binaries)), { scope: 'file' }],
 });
 
-test(`no binary needs a system newer than ${FLOOR}`, async () => {
-	const needs = await SYSTEM.needs(await compiled());
-	const newer = needs.filter(({ version }) => isNewer(version, SYSTEM.floor.version));
+test('every binary finds its libraries inside the directory or in the system', ({
+	binaries,
+	inspected,
+}) => {
+	expect(binaries).not.toEqual([]);
+	expect(inspected.outside).toEqual([]);
+});
+
+test(`no binary needs a system newer than ${FLOOR}`, ({ inspected }) => {
+	expect(inspected.needs).not.toEqual([]);
+	const newer = inspected.needs.filter(({ version }) => isNewer(version, SYSTEM.floor.version));
 
 	expect(newer.map(({ file, version }) => `${file} needs ${SYSTEM.floor.name} ${version}`)).toEqual(
 		[],
@@ -55,6 +74,7 @@ const resolvedByLdd = async (file: string) => {
 // macOS has no ldd. otool -l prints each file's load commands under a line naming it: the libraries it
 // loads as `name`, its run paths as `path` and the oldest macOS it runs on as `minos`. One call reads
 // every file, because each otool start goes through xcrun and takes a while. See `man otool`.
+// Only libSystem, which holds the C library, and the loader itself may come from the system.
 const loadCommands = async (files: string[]) => {
 	const parts = (await shell('otool', '-l', ...files)).split(/^(\/.*):$/m).slice(1);
 	const sections = new Map(

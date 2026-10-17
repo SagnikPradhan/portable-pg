@@ -19,7 +19,11 @@ esac
 JOBS=$(getconf _NPROCESSORS_ONLN)
 
 compile() {
-	cd "$(mktemp -d)"
+	local work
+	work=$(mktemp -d)
+	# shellcheck disable=SC2064
+	trap "rm -rf '$work'" EXIT
+	cd "$work"
 	clone postgres/postgres "$POSTGRES_TAG" "$POSTGRES_COMMIT" postgres
 	clone pgvector/pgvector "$PGVECTOR_TAG" "$PGVECTOR_COMMIT" pgvector
 
@@ -31,7 +35,7 @@ compile() {
 }
 
 describe() {
-	: "${VERSION:?}" "${PLATFORM:?}" "${REQUIRES:?}" "${SOURCE:?}"
+	: "${VERSION:?}" "${PLATFORM:?}" "${FLOOR_NAME:?}" "${FLOOR_VERSION:?}" "${SOURCE:?}"
 	manifest >"$PREFIX/manifest.json"
 }
 
@@ -74,7 +78,7 @@ manifest() {
 		{
 		  "version": "$VERSION",
 		  "platform": "$PLATFORM",
-		  "requires": "$REQUIRES",
+		  "$FLOOR_NAME": "$FLOOR_VERSION",
 		  "source": "$SOURCE",
 		  "postgres": { "version": "$postgres", "tag": "$POSTGRES_TAG", "commit": "$POSTGRES_COMMIT" },
 		  "pgvector": { "tag": "$PGVECTOR_TAG", "commit": "$PGVECTOR_COMMIT" },
