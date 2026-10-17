@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { promisify } from 'node:util';
 
 export const BINARIES = realpathSync(
-	process.env['PPG_BINARIES'] ?? `vendor/postgres/linux-${process.arch}`,
+	process.env['PPG_BINARIES'] ?? `vendor/postgres/${process.platform}-${process.arch}`,
 );
 
 const LIFETIME = '300';
@@ -92,5 +92,6 @@ export const cluster = (machine: Machine, binaries = machine.binaries): Cluster 
 	};
 };
 
+// Some tools print megabytes, such as otool reading every binary at once, past execFile's 1 MB default.
 export const shell = async (command: string, ...args: string[]) =>
-	(await exec(command, args)).stdout.trim();
+	(await exec(command, args, { maxBuffer: 64 * 1024 * 1024 })).stdout.trim();

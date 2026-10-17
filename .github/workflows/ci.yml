@@ -41,8 +41,9 @@ jobs:
     strategy:
       matrix:
         include:
-          - { arch: x64, runner: ubuntu-24.04 }
-          - { arch: arm64, runner: ubuntu-24.04-arm }
+          - { platform: linux-x64, runner: ubuntu-24.04 }
+          - { platform: linux-arm64, runner: ubuntu-24.04-arm }
+          - { platform: darwin-arm64, runner: macos-26 }
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 30
     steps:
@@ -50,18 +51,23 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24
-      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - if: runner.os == 'Linux'
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
       # Exposes the cache service to docker buildx, which a plain run step cannot reach otherwise.
-      - uses: crazy-max/ghaction-github-runtime@04d248b84655b509d8c44dc1d6f990c879747487 # v4.0.0
+      - if: runner.os == 'Linux'
+        uses: crazy-max/ghaction-github-runtime@04d248b84655b509d8c44dc1d6f990c879747487 # v4.0.0
       - if: env.VERSION
         run: npm pkg set version="$VERSION"
-      - run: >-
-          scripts/postgres.sh ${{ matrix.arch }}
-          --cache-from type=gha,scope=${{ matrix.arch }}
-          --cache-to type=gha,mode=max,scope=${{ matrix.arch }}
+      - if: runner.os == 'Linux'
+        run: >-
+          scripts/postgres.sh ${{ matrix.platform }}
+          --cache-from type=gha,scope=${{ matrix.platform }}
+          --cache-to type=gha,mode=max,scope=${{ matrix.platform }}
+      - if: runner.os == 'macOS'
+        run: scripts/postgres.sh ${{ matrix.platform }}
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: binaries-${{ matrix.arch }}
+          name: binaries-${{ matrix.platform }}
           path: vendor/postgres/*.tar.gz
           if-no-files-found: error
 
@@ -70,8 +76,9 @@ jobs:
     strategy:
       matrix:
         include:
-          - { arch: x64, runner: ubuntu-24.04 }
-          - { arch: arm64, runner: ubuntu-24.04-arm }
+          - { platform: linux-x64, runner: ubuntu-24.04 }
+          - { platform: linux-arm64, runner: ubuntu-24.04-arm }
+          - { platform: darwin-arm64, runner: macos-26 }
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 20
     steps:
@@ -79,7 +86,7 @@ jobs:
       - uses: ./.github/actions/setup
       - uses: ./.github/actions/binaries
         with:
-          arch: ${{ matrix.arch }}
+          platform: ${{ matrix.platform }}
       - if: env.VERSION
         run: npm pkg set version="$VERSION"
       - name: Download the previous release to check data directory compatibility against
@@ -88,12 +95,15 @@ jobs:
             echo "::notice::No previous release to check data directory compatibility against"
             exit 0
           }
-          gh release download "$tag" --pattern "*-linux-$ARCH.tar.gz" --dir "$RUNNER_TEMP/previous"
+          gh release download "$tag" --pattern "*-$PLATFORM.tar.gz" --dir "$RUNNER_TEMP/previous" || {
+            echo "::notice::$tag has no $PLATFORM binaries to check data directory compatibility against"
+            exit 0
+          }
           mkdir "$RUNNER_TEMP/old"
           tar -xzf "$RUNNER_TEMP"/previous/*.tar.gz -C "$RUNNER_TEMP/old" --strip-components=1
           echo "PPG_PREVIOUS=$RUNNER_TEMP/old" >>"$GITHUB_ENV"
         env:
-          ARCH: ${{ matrix.arch }}
+          PLATFORM: ${{ matrix.platform }}
           GH_TOKEN: ${{ github.token }}
       - run: pnpm test
 

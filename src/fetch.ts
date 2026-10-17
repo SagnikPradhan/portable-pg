@@ -7,7 +7,7 @@ import { dirname, join } from 'node:path';
 import { promisify } from 'node:util';
 
 const REPOSITORY = 'https://github.com/SagnikPradhan/portable-pg';
-const SUPPORTED = ['linux-x64', 'linux-arm64'];
+const SUPPORTED = ['linux-x64', 'linux-arm64', 'darwin-arm64'];
 
 const run = promisify(execFile);
 
@@ -97,7 +97,7 @@ const platform = () => {
 const unpublished = (version: string) =>
 	SUPPORTED.includes(platform())
 		? `portable-pg ${version} has no published binaries. Build them with scripts/postgres.sh.`
-		: `portable-pg has no binaries for ${platform()}, only for ${SUPPORTED.join(' and ')}.`;
+		: `portable-pg has no binaries for ${platform()}, only for ${SUPPORTED.join(', ')}.`;
 
 const json = async (file: string) =>
 	JSON.parse(await readFile(new URL(`../${file}`, import.meta.url), 'utf8'));
