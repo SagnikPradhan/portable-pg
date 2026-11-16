@@ -20,7 +20,7 @@ const OTHER = LINUX ? { uid: 1000, gid: 1000 } : { uid: userInfo().uid, gid: use
 
 const exec = promisify(execFile);
 
-const test = base.extend<{ inRoot: (script: string) => Promise<Record<string, unknown>> }>({
+const fixtures = base.extend<{ inRoot: (script: string) => Promise<Record<string, unknown>> }>({
 	inRoot: async ({ onTestFinished }, use) => {
 		const work = await mkdtemp(join(tmpdir(), 'ppg-root-'));
 		onTestFinished(() => rm(work, { recursive: true, force: true }));
@@ -33,6 +33,13 @@ const test = base.extend<{ inRoot: (script: string) => Promise<Record<string, un
 		});
 	},
 });
+
+// Without passwordless sudo a Mac developer skips these. CI never does, so it cannot lose them quietly.
+const passwordless = await exec('sudo', ['-n', 'true']).then(
+	() => true,
+	() => false,
+);
+const test = fixtures.skipIf(!LINUX && !passwordless && !process.env['CI']);
 
 const docker = (work: string, code: string) =>
 	exec('docker', [
