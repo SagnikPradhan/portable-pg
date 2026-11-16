@@ -1,19 +1,20 @@
 import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
-import { mkdir, mkdtemp, readFile, rename, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { promisify } from 'node:util';
 
 const REPOSITORY = 'https://github.com/SagnikPradhan/portable-pg';
+const SYSTEM_CACHE = process.platform === 'darwin' ? '/Library/Caches' : '/var/cache';
 const SUPPORTED = ['linux-x64', 'linux-arm64', 'darwin-arm64'];
 
 const run = promisify(execFile);
 
 /** Where binaries go and come from. Both default to this version's own. */
 export type FetchOptions = {
-	/** Where the binaries go. Defaults to a directory per version in the user's cache. */
+	/** Where the binaries go. Defaults to a directory per version in the user's cache, or the system's for root. */
 	directory?: string | undefined;
 	/** Where to download them from. Defaults to this version's GitHub release. */
 	source?: Source | undefined;
@@ -52,6 +53,8 @@ const download = async (directory: string, source: Source) => {
 	const staging = await mkdtemp(`${directory}.download-`);
 	try {
 		await unpack(bytes, staging);
+		// mkdtemp makes it private, and the user Postgres drops to must reach in.
+		await chmod(staging, 0o755);
 		await rename(staging, directory).catch((error: unknown) => {
 			if (!installed(directory)) throw error;
 		});
@@ -71,7 +74,10 @@ const verify = async (directory: string, version: string) => {
 
 const installed = (directory: string) => existsSync(join(directory, 'manifest.json'));
 
-const cache = () => join(process.env['XDG_CACHE_HOME'] || join(homedir(), '.cache'), 'portable-pg');
+// Root's own cache is unreadable to the user Postgres drops to, so root shares the system's.
+const cache = () => join(process.env['XDG_CACHE_HOME'] || home(), 'portable-pg');
+
+const home = () => (process.getuid?.() === 0 ? SYSTEM_CACHE : join(homedir(), '.cache'));
 
 const get = async (url: string) => {
 	const response = await fetch(url);

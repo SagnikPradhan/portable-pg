@@ -2,6 +2,7 @@
 export const PortablePgErrorCode = {
 	DataDirectoryMode: 'DATA_DIRECTORY_MODE',
 	DataDirectoryVersion: 'DATA_DIRECTORY_VERSION',
+	DataDirectoryOwner: 'DATA_DIRECTORY_OWNER',
 	StartFailed: 'START_FAILED',
 	ConnectFailed: 'CONNECT_FAILED',
 } as const;

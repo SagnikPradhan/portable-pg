@@ -15,6 +15,7 @@ All tests are Vitest tests and run with `pnpm test`, against the binaries in `ve
   ```
 
 - **`tests/server.test.ts`** covers starting, stopping, settings and crash recovery. Its watchdog test kills a Node process with SIGKILL and waits for its Postgres to stop.
+- **`tests/root.test.ts`** runs Node as root and starts Postgres from it. It checks that Postgres runs as `nobody` or the `runAs` user, that stopping leaves no socket or temporary data directory, that a root-owned data directory is refused, and that the binaries root downloads by default are ones `nobody` can run. On Linux root is a `node:24-bookworm-slim` container. A Mac has no containers, so it runs Node under `sudo -n`, which needs passwordless sudo, as CI's runners have. Without it the tests skip locally and fail in CI. To run them on a Mac, run `sudo -v && pnpm test tests/root.test.ts`.
 - **`tests/fetch.test.ts`** covers downloads, checksum failures, concurrent fetches and version mismatches, against a local HTTP server.
 
 Before pushing, run what CI's check job runs, then the tests:
