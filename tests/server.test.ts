@@ -1,11 +1,12 @@
 import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { chmod, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { setTimeout } from 'node:timers/promises';
 import pg from 'pg';
 import { test as base, expect, vi } from 'vitest';
+import { PortablePgErrorCode } from '#src/error';
 import { startServer } from '#src/server';
 
 const binaries =
@@ -91,7 +92,10 @@ test('resolves every call to stop, even after stopping', async ({ directory }) =
 test('refuses a data directory in use and keeps its server running', async ({ directory }) => {
 	const first = await startServer({ directory, binaries });
 
-	await expect(startServer({ directory, binaries })).rejects.toThrow('did not start');
+	await expect(startServer({ directory, binaries })).rejects.toMatchObject({
+		code: PortablePgErrorCode.StartFailed,
+		message: expect.stringContaining('did not start'),
+	});
 	expect(await query(first.url, 'select 1')).toBe(1);
 	await first.stop();
 });
@@ -135,9 +139,47 @@ test('fails to start as a user the existing data directory does not have', async
 }) => {
 	await (await startServer({ directory, binaries })).stop();
 
-	await expect(startServer({ directory, binaries, user: 'rupee' })).rejects.toThrow(
-		'role "rupee" does not exist',
-	);
+	await expect(startServer({ directory, binaries, user: 'rupee' })).rejects.toMatchObject({
+		code: PortablePgErrorCode.ConnectFailed,
+		message: expect.stringContaining('role "rupee" does not exist'),
+	});
+	expect(existsSync(join(directory, 'postmaster.pid'))).toBe(false);
+});
+
+test('refuses a data directory Postgres would reject for its mode, and says how to go on', async ({
+	directory,
+}) => {
+	await (await startServer({ directory, binaries })).stop();
+	await chmod(directory, 0o775);
+
+	await expect(startServer({ directory, binaries })).rejects.toMatchObject({
+		code: PortablePgErrorCode.DataDirectoryMode,
+		message: expect.stringMatching(
+			/was not created by initdb \(mode 775\).*move it aside.*chmod 700/s,
+		),
+	});
+	expect(existsSync(join(directory, 'postmaster.pid'))).toBe(false);
+});
+
+test('starts on a data directory with the group read-only mode Postgres allows', async ({
+	directory,
+}) => {
+	await (await startServer({ directory, binaries })).stop();
+	await chmod(directory, 0o750);
+
+	const server = await startServer({ directory, binaries });
+	expect(await query(server.url, 'select 1')).toBe(1);
+	await server.stop();
+});
+
+test('refuses a data directory made by another Postgres major', async ({ directory }) => {
+	await (await startServer({ directory, binaries })).stop();
+	await writeFile(join(directory, 'PG_VERSION'), '17\n');
+
+	await expect(startServer({ directory, binaries })).rejects.toMatchObject({
+		code: PortablePgErrorCode.DataDirectoryVersion,
+		message: expect.stringMatching(/Postgres 17.*Postgres 18.*move it aside/s),
+	});
 	expect(existsSync(join(directory, 'postmaster.pid'))).toBe(false);
 });
 
