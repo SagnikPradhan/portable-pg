@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { PortablePgError, PortablePgErrorCode } from './error.ts';
 import { fetchBinaries } from './fetch.ts';
-import { shutdown, type RunAs } from './postmaster.ts';
+import { shutdown, spawnAs, type RunAs } from './postmaster.ts';
 
 // Runs from src/ as TypeScript in this repository's tests, and from dist/ as JavaScript once built.
 const WATCHDOG = fileURLToPath(new URL(`./watchdog${extname(import.meta.url)}`, import.meta.url));
@@ -123,7 +123,7 @@ const verify = async (c: Cluster) => {
 // Prints "postgres (PostgreSQL) 18.6".
 const major = async (c: Cluster) => {
 	const { stdout } = await run(join(c.bin, 'postgres'), ['--version'], {
-		...c.runAs,
+		...spawnAs(c.runAs),
 		encoding: 'utf8',
 	});
 	return /\d+/.exec(stdout.split(')').at(-1) ?? '')?.[0];
@@ -135,7 +135,7 @@ const initialise = async (c: Cluster, user: string) => {
 	await run(
 		join(c.bin, 'initdb'),
 		['-D', c.directory, '-U', user, '--auth=trust', '-E', 'UTF8', '--locale=C'],
-		c.runAs,
+		spawnAs(c.runAs),
 	);
 };
 
@@ -146,7 +146,7 @@ const start = async (c: Cluster, settings: Record<string, string>) => {
 	await run(
 		join(c.bin, 'pg_ctl'),
 		['start', '-w', '-D', c.directory, '-l', log, '-o', options],
-		c.runAs,
+		spawnAs(c.runAs),
 	).catch(async (error) => {
 		const lines = (await readFile(log, 'utf8').catch(() => '')).trimEnd().split('\n');
 		const tail = lines.slice(-5).join('\n');
@@ -158,11 +158,13 @@ const start = async (c: Cluster, settings: Record<string, string>) => {
 
 // initdb created the user only if the data directory was new, so an existing one may lack it.
 const connect = async (c: Cluster, url: string) => {
-	await run(join(c.bin, 'psql'), ['-XAtq', '-d', url, '-c', 'select'], c.runAs).catch((error) => {
-		const context = error.stderr ? `: ${error.stderr.trimEnd()}` : '';
-		const message = `Cannot connect to ${c.directory}${context}`;
-		throw new PortablePgError(PortablePgErrorCode.ConnectFailed, message, { cause: error });
-	});
+	await run(join(c.bin, 'psql'), ['-XAtq', '-d', url, '-c', 'select'], spawnAs(c.runAs)).catch(
+		(error) => {
+			const context = error.stderr ? `: ${error.stderr.trimEnd()}` : '';
+			const message = `Cannot connect to ${c.directory}${context}`;
+			throw new PortablePgError(PortablePgErrorCode.ConnectFailed, message, { cause: error });
+		},
+	);
 };
 
 const watch = async (c: Cluster, url: string): Promise<Server> => {

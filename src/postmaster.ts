@@ -9,6 +9,9 @@ const run = promisify(execFile);
 /** The user and group Postgres runs as when the process that starts it is root. */
 export type RunAs = { uid: number; gid: number };
 
+// The ids of macOS's nobody are above 2^31, which chown takes but spawn rejects; `| 0` wraps them.
+export const spawnAs = (runAs?: RunAs) => runAs && { uid: runAs.uid | 0, gid: runAs.gid | 0 };
+
 /**
  * Stops the server on the data directory if it is ours, then removes the socket directory. Every
  * start gets its own socket directory, so a later server on the same data directory stays up.
@@ -17,7 +20,7 @@ export const shutdown = async (pgCtl: string, directory: string, socket: string,
 	// Fast mode rolls back open transactions and shuts down cleanly. See -m in
 	// https://www.postgresql.org/docs/18/app-pg-ctl.html
 	if (ours(directory, socket))
-		await run(pgCtl, ['stop', '-m', 'fast', '-D', directory], runAs).catch((error) => {
+		await run(pgCtl, ['stop', '-m', 'fast', '-D', directory], spawnAs(runAs)).catch((error) => {
 			if (ours(directory, socket))
 				throw new Error(`Postgres did not stop on ${directory}`, { cause: error });
 		});
