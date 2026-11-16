@@ -14,6 +14,8 @@ import { shutdown, spawnAs, type RunAs } from './postmaster.ts';
 // Runs from src/ as TypeScript in this repository's tests, and from dist/ as JavaScript once built.
 const WATCHDOG = fileURLToPath(new URL(`./watchdog${extname(import.meta.url)}`, import.meta.url));
 
+const ASIDE = 'move it aside to initialise a fresh cluster';
+
 const run = promisify(execFile);
 
 /** How to start Postgres. Every option has a default. */
@@ -48,8 +50,8 @@ export type Server = {
 /** Starts Postgres over a private Unix socket. Fails if another server runs on the data directory. */
 export const startServer = async (o: StartOptions = {}): Promise<Server> => {
 	const bin = join(await fetchBinaries({ directory: o.binaries }), 'bin');
-	const socket = await mkdtemp(join(tmpdir(), 'ppg-'));
 	const runAs = process.getuid?.() === 0 ? (o.runAs ?? (await nobody())) : undefined;
+	const socket = await mkdtemp(join(tmpdir(), 'ppg-'));
 	const cluster = { bin, socket, directory: o.directory ?? join(socket, 'data'), runAs };
 
 	return launch(cluster, o.user ?? 'postgres', o.settings ?? {}).catch((error) =>
@@ -60,7 +62,14 @@ export const startServer = async (o: StartOptions = {}): Promise<Server> => {
 };
 
 // Not always 65534: macOS numbers it -2.
-const nobody = async () => ({ uid: await id('-u'), gid: await id('-g') });
+const nobody = async () =>
+	Promise.all([id('-u'), id('-g')]).then(
+		([uid, gid]) => ({ uid, gid }),
+		(error) => {
+			const message = 'Cannot look up nobody to run Postgres as, so pass runAs';
+			throw new PortablePgError(PortablePgErrorCode.StartFailed, message, { cause: error });
+		},
+	);
 
 const id = async (flag: string) => Number((await run('id', [flag, 'nobody'])).stdout);
 
@@ -77,8 +86,7 @@ const launch = async (c: Cluster, user: string, settings: Record<string, string>
 	return watch(c, url);
 };
 
-// Root makes the directories, and the user Postgres runs as must own them. A directory that already
-// holds something may be a cache, so it is reported, never recursively handed over.
+// A directory that already holds something may be a cache, so it is reported, never handed over.
 const claim = async (c: Cluster) => {
 	if (!c.runAs) return;
 
@@ -96,28 +104,32 @@ const claim = async (c: Cluster) => {
 	await chown(c.directory, uid, gid);
 };
 
-// Postgres rejects a data directory writable by its group or open to others, but says so tersely.
 const verify = async (c: Cluster) => {
 	if (!existsSync(join(c.directory, 'PG_VERSION'))) return;
 
+	await checkMode(c);
+	await checkVersion(c);
+};
+
+const checkMode = async (c: Cluster) => {
 	const mode = (await stat(c.directory)).mode & 0o777;
+	if (!(mode & 0o027)) return;
+
+	throw new PortablePgError(
+		PortablePgErrorCode.DataDirectoryMode,
+		`${c.directory} was not created by initdb (mode ${mode.toString(8)}); ${ASIDE}, or chmod 700 it if initdb did create it`,
+	);
+};
+
+const checkVersion = async (c: Cluster) => {
 	const found = (await readFile(join(c.directory, 'PG_VERSION'), 'utf8')).trim();
 	const bundled = await major(c);
-	const aside = 'move it aside to initialise a fresh cluster';
+	if (found === bundled) return;
 
-	if (mode & 0o027) {
-		const octal = mode.toString(8);
-		throw new PortablePgError(
-			PortablePgErrorCode.DataDirectoryMode,
-			`${c.directory} was not created by initdb (mode ${octal}); ${aside}, or chmod 700 it if initdb did create it`,
-		);
-	}
-
-	if (found !== bundled)
-		throw new PortablePgError(
-			PortablePgErrorCode.DataDirectoryVersion,
-			`${c.directory} holds a Postgres ${found} cluster, not the bundled Postgres ${bundled}; ${aside}`,
-		);
+	throw new PortablePgError(
+		PortablePgErrorCode.DataDirectoryVersion,
+		`${c.directory} holds a Postgres ${found} cluster, not the bundled Postgres ${bundled}; ${ASIDE}`,
+	);
 };
 
 // Prints "postgres (PostgreSQL) 18.6".
