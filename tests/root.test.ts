@@ -4,7 +4,7 @@ import { chmod, cp, mkdtemp, readdir, readFile, rm } from 'node:fs/promises';
 import { tmpdir, userInfo } from 'node:os';
 import { dirname, join, relative } from 'node:path';
 import { promisify } from 'node:util';
-import { afterAll, test as base, expect } from 'vitest';
+import { test as base, expect } from 'vitest';
 import { BINARIES } from './postgres.ts';
 
 const IMAGE = 'node:24-bookworm-slim';
@@ -14,46 +14,53 @@ const LINUX = process.platform === 'linux';
 const PKG = LINUX ? '/pkg' : process.cwd();
 const WORK = LINUX ? '/work' : '';
 
-// On a Mac nobody cannot enter the checkout or the user's own temporary directory, so both move to /tmp.
+// On a Mac nobody cannot enter the checkout or the user's own temporary directory.
 const SHARED = LINUX ? tmpdir() : '/tmp';
 
-// A user other than nobody that the system knows: `node` in the image, the user running the tests here.
 const OTHER = LINUX ? { uid: 1000, gid: 1000 } : { uid: userInfo().uid, gid: userInfo().gid };
 
 const exec = promisify(execFile);
 
-const fixtures = base.extend<{ inRoot: (script: string) => Promise<Record<string, unknown>> }>({
-	inRoot: async ({ onTestFinished }, use) => {
+type Fixtures = { bin: string; inRoot: (script: string) => Promise<Record<string, unknown>> };
+
+const fixtures = base.extend<Fixtures>({
+	bin: [
+		// eslint-disable-next-line no-empty-pattern
+		async ({}, use) => {
+			if (LINUX) return use('/opt/postgres');
+
+			const copy = await mkdtemp(join(SHARED, 'ppg-root-bin-'));
+			await chmod(copy, 0o755);
+			await cp(BINARIES, copy, { recursive: true });
+			await use(copy);
+			await rm(copy, { recursive: true, force: true });
+		},
+		{ scope: 'file' },
+	],
+	inRoot: async ({ bin, onTestFinished }, use) => {
 		const work = await mkdtemp(join(SHARED, 'ppg-root-'));
 		onTestFinished(() => rm(work, { recursive: true, force: true }));
 		await chmod(work, 0o755);
 
 		await use(async (script) => {
-			const code = prelude(LINUX ? WORK : work) + script;
-			const { stdout } = LINUX ? await docker(work, code) : await sudo(code);
+			const code = prelude(LINUX ? WORK : work, bin) + script;
+			const { stdout } = LINUX ? await docker(work, bin, code) : await sudo(code);
 			return JSON.parse(stdout.trim().split('\n').at(-1) ?? '');
 		});
 	},
 });
 
-// Without passwordless sudo a Mac developer skips these. CI never does, so it cannot lose them quietly.
+// CI never skips, so it cannot lose these quietly.
 const passwordless = await exec('sudo', ['-n', 'true']).then(
 	() => true,
 	() => false,
 );
-const skip = !LINUX && !passwordless && !process.env['CI'];
-const test = fixtures.skipIf(skip);
+const test = fixtures.skipIf(!LINUX && !passwordless && !process.env['CI']);
 
-const COPY = !LINUX && !skip;
-const BIN = COPY ? await mkdtemp(join(SHARED, 'ppg-root-bin-')) : '/opt/postgres';
-if (COPY) await chmod(BIN, 0o755);
-if (COPY) await cp(BINARIES, BIN, { recursive: true });
-afterAll(() => (COPY ? rm(BIN, { recursive: true, force: true }) : undefined));
-
-const docker = (work: string, code: string) =>
+const docker = (work: string, bin: string, code: string) =>
 	exec('docker', [
 		...['run', '--rm', '--user', '0:0', '-v', `${work}:${WORK}`],
-		...['-v', `${process.cwd()}:${PKG}:ro`, '-v', `${BINARIES}:${BIN}:ro`, IMAGE],
+		...['-v', `${process.cwd()}:${PKG}:ro`, '-v', `${BINARIES}:${bin}:ro`, IMAGE],
 		...['node', '--input-type=module', '-e', code],
 	]);
 
@@ -61,16 +68,16 @@ const sudo = (code: string) =>
 	exec('sudo', ['-n', 'env', 'TMPDIR=/tmp', process.execPath, '--input-type=module', '-e', code]);
 
 // Every script ends by printing one JSON line and leaves its work directory empty, since root made it.
-const prelude = (work: string) => `
+const prelude = (work: string, bin: string) => `
 import { execFileSync } from 'node:child_process';
 import { readdirSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { startServer } from '${PKG}/src/server.ts';
-const binaries = '${BIN}';
+const binaries = '${bin}';
 const work = '${work}';
 const nobody = Number(execFileSync('id', ['-u', 'nobody'], { encoding: 'utf8' }));
 const owner = (path) => statSync(path).uid;
-const sql = (url, text) => execFileSync('${BIN}/bin/psql', ['-XAtq', '-d', url, '-c', text], { encoding: 'utf8' }).trim();
+const sql = (url, text) => execFileSync('${bin}/bin/psql', ['-XAtq', '-d', url, '-c', text], { encoding: 'utf8' }).trim();
 const leftovers = () => readdirSync(tmpdir()).filter((name) => name.startsWith('ppg-'));
 const finish = (result) => { for (const name of readdirSync(work)) rmSync(work + '/' + name, { recursive: true, force: true }); console.log(JSON.stringify({ ...result, nobody })); };
 `;

@@ -75,9 +75,9 @@ const verify = async (directory: string, version: string) => {
 const installed = (directory: string) => existsSync(join(directory, 'manifest.json'));
 
 // Root's own cache is unreadable to the user Postgres drops to, so root shares the system's.
-const cache = () => join(process.env['XDG_CACHE_HOME'] || home(), 'portable-pg');
+const cache = () => join(process.env['XDG_CACHE_HOME'] || cacheHome(), 'portable-pg');
 
-const home = () => (process.getuid?.() === 0 ? SYSTEM_CACHE : join(homedir(), '.cache'));
+const cacheHome = () => (process.getuid?.() === 0 ? SYSTEM_CACHE : join(homedir(), '.cache'));
 
 const get = async (url: string) => {
 	const response = await fetch(url);
