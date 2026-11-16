@@ -1,12 +1,13 @@
 import { execFile, spawn } from 'node:child_process';
 import { once } from 'node:events';
 import { existsSync } from 'node:fs';
-import { mkdtemp, readFile } from 'node:fs/promises';
+import { mkdtemp, readFile, stat } from 'node:fs/promises';
 import type { Socket } from 'node:net';
 import { tmpdir } from 'node:os';
 import { extname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
+import { PortablePgError, PortablePgErrorCode } from './error.ts';
 import { fetchBinaries } from './fetch.ts';
 import { shutdown } from './postmaster.ts';
 
@@ -56,10 +57,41 @@ type Cluster = { bin: string; directory: string; socket: string };
 const launch = async (c: Cluster, user: string, settings: Record<string, string>) => {
 	const url = connection(c.socket, user, settings);
 
+	await verify(c);
 	await initialise(c, user);
 	await start(c, settings);
 	await connect(c, url);
 	return watch(c, url);
+};
+
+// Postgres rejects a data directory writable by its group or open to others, but says so tersely.
+const verify = async (c: Cluster) => {
+	if (!existsSync(join(c.directory, 'PG_VERSION'))) return;
+
+	const mode = (await stat(c.directory)).mode & 0o777;
+	const found = (await readFile(join(c.directory, 'PG_VERSION'), 'utf8')).trim();
+	const bundled = await major(c);
+	const aside = 'move it aside to initialise a fresh cluster';
+
+	if (mode & 0o027) {
+		const octal = mode.toString(8);
+		throw new PortablePgError(
+			PortablePgErrorCode.DataDirectoryMode,
+			`${c.directory} was not created by initdb (mode ${octal}); ${aside}, or chmod 700 it if initdb did create it`,
+		);
+	}
+
+	if (found !== bundled)
+		throw new PortablePgError(
+			PortablePgErrorCode.DataDirectoryVersion,
+			`${c.directory} holds a Postgres ${found} cluster, not the bundled Postgres ${bundled}; ${aside}`,
+		);
+};
+
+// Prints "postgres (PostgreSQL) 18.6".
+const major = async (c: Cluster) => {
+	const { stdout } = await run(join(c.bin, 'postgres'), ['--version']);
+	return stdout.trim().split(' ').at(-1)?.split('.')[0];
 };
 
 const initialise = async (c: Cluster, user: string) => {
@@ -94,7 +126,8 @@ const start = async (c: Cluster, settings: Record<string, string>) => {
 		const lines = (await readFile(log, 'utf8').catch(() => '')).trimEnd().split('\n');
 		const tail = lines.slice(-5).join('\n');
 		const context = tail ? `:\n${tail}` : '';
-		throw new Error(`Postgres did not start on ${c.directory}${context}`, { cause: error });
+		const message = `Postgres did not start on ${c.directory}${context}`;
+		throw new PortablePgError(PortablePgErrorCode.StartFailed, message, { cause: error });
 	});
 };
 
@@ -102,7 +135,8 @@ const start = async (c: Cluster, settings: Record<string, string>) => {
 const connect = async (c: Cluster, url: string) => {
 	await run(join(c.bin, 'psql'), ['-XAtq', '-d', url, '-c', 'select']).catch((error) => {
 		const context = error.stderr ? `: ${error.stderr.trimEnd()}` : '';
-		throw new Error(`Cannot connect to ${c.directory}${context}`, { cause: error });
+		const message = `Cannot connect to ${c.directory}${context}`;
+		throw new PortablePgError(PortablePgErrorCode.ConnectFailed, message, { cause: error });
 	});
 };
 
