@@ -14,8 +14,6 @@ import { shutdown, type RunAs } from './postmaster.ts';
 // Runs from src/ as TypeScript in this repository's tests, and from dist/ as JavaScript once built.
 const WATCHDOG = fileURLToPath(new URL(`./watchdog${extname(import.meta.url)}`, import.meta.url));
 
-const NOBODY = { uid: 65534, gid: 65534 };
-
 const run = promisify(execFile);
 
 /** How to start Postgres. Every option has a default. */
@@ -51,7 +49,7 @@ export type Server = {
 export const startServer = async (o: StartOptions = {}): Promise<Server> => {
 	const bin = join(await fetchBinaries({ directory: o.binaries }), 'bin');
 	const socket = await mkdtemp(join(tmpdir(), 'ppg-'));
-	const runAs = process.getuid?.() === 0 ? (o.runAs ?? NOBODY) : undefined;
+	const runAs = process.getuid?.() === 0 ? (o.runAs ?? (await nobody())) : undefined;
 	const cluster = { bin, socket, directory: o.directory ?? join(socket, 'data'), runAs };
 
 	return launch(cluster, o.user ?? 'postgres', o.settings ?? {}).catch((error) =>
@@ -60,6 +58,11 @@ export const startServer = async (o: StartOptions = {}): Promise<Server> => {
 			.then(() => Promise.reject(error)),
 	);
 };
+
+// Not always 65534: macOS numbers it -2.
+const nobody = async () => ({ uid: await id('-u'), gid: await id('-g') });
+
+const id = async (flag: string) => Number((await run('id', [flag, 'nobody'])).stdout);
 
 type Cluster = { bin: string; directory: string; socket: string; runAs: RunAs | undefined };
 
@@ -123,7 +126,7 @@ const major = async (c: Cluster) => {
 		...c.runAs,
 		encoding: 'utf8',
 	});
-	return stdout.trim().split(' ').at(-1)?.split('.')[0];
+	return /\d+/.exec(stdout.split(')').at(-1) ?? '')?.[0];
 };
 
 const initialise = async (c: Cluster, user: string) => {
