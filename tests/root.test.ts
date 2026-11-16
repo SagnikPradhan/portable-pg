@@ -1,10 +1,10 @@
 import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { chmod, mkdtemp, readdir, readFile, rm } from 'node:fs/promises';
+import { chmod, cp, mkdtemp, readdir, readFile, rm } from 'node:fs/promises';
 import { tmpdir, userInfo } from 'node:os';
 import { dirname, join, relative } from 'node:path';
 import { promisify } from 'node:util';
-import { test as base, expect } from 'vitest';
+import { afterAll, test as base, expect } from 'vitest';
 import { BINARIES } from './postgres.ts';
 
 const IMAGE = 'node:24-bookworm-slim';
@@ -12,8 +12,10 @@ const LINUX = process.platform === 'linux';
 
 // Linux runs Node as root in a container. A Mac has no containers, so it runs Node under sudo.
 const PKG = LINUX ? '/pkg' : process.cwd();
-const BIN = LINUX ? '/opt/postgres' : BINARIES;
 const WORK = LINUX ? '/work' : '';
+
+// On a Mac nobody cannot enter the checkout or the user's own temporary directory, so both move to /tmp.
+const SHARED = LINUX ? tmpdir() : '/tmp';
 
 // A user other than nobody that the system knows: `node` in the image, the user running the tests here.
 const OTHER = LINUX ? { uid: 1000, gid: 1000 } : { uid: userInfo().uid, gid: userInfo().gid };
@@ -22,7 +24,7 @@ const exec = promisify(execFile);
 
 const fixtures = base.extend<{ inRoot: (script: string) => Promise<Record<string, unknown>> }>({
 	inRoot: async ({ onTestFinished }, use) => {
-		const work = await mkdtemp(join(tmpdir(), 'ppg-root-'));
+		const work = await mkdtemp(join(SHARED, 'ppg-root-'));
 		onTestFinished(() => rm(work, { recursive: true, force: true }));
 		await chmod(work, 0o755);
 
@@ -39,7 +41,14 @@ const passwordless = await exec('sudo', ['-n', 'true']).then(
 	() => true,
 	() => false,
 );
-const test = fixtures.skipIf(!LINUX && !passwordless && !process.env['CI']);
+const skip = !LINUX && !passwordless && !process.env['CI'];
+const test = fixtures.skipIf(skip);
+
+const COPY = !LINUX && !skip;
+const BIN = COPY ? await mkdtemp(join(SHARED, 'ppg-root-bin-')) : '/opt/postgres';
+if (COPY) await chmod(BIN, 0o755);
+if (COPY) await cp(BINARIES, BIN, { recursive: true });
+afterAll(() => (COPY ? rm(BIN, { recursive: true, force: true }) : undefined));
 
 const docker = (work: string, code: string) =>
 	exec('docker', [
@@ -49,7 +58,7 @@ const docker = (work: string, code: string) =>
 	]);
 
 const sudo = (code: string) =>
-	exec('sudo', ['-n', process.execPath, '--input-type=module', '-e', code]);
+	exec('sudo', ['-n', 'env', 'TMPDIR=/tmp', process.execPath, '--input-type=module', '-e', code]);
 
 // Every script ends by printing one JSON line and leaves its work directory empty, since root made it.
 const prelude = (work: string) => `
